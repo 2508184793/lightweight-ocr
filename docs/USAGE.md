@@ -197,6 +197,39 @@ curl -X POST "http://localhost:8000/detect" \
   -F "file=@image.jpg"
 ```
 
+#### 识别PDF文件
+
+```bash
+# 上传PDF文件进行识别
+curl -X POST "http://localhost:8000/recognize/pdf" \
+  -F "file=@document.pdf" \
+  -F "language=ch" \
+  -F "dpi=200"
+
+# 识别指定页面范围
+curl -X POST "http://localhost:8000/recognize/pdf" \
+  -F "file=@document.pdf" \
+  -F "first_page=1" \
+  -F "last_page=5"
+```
+
+**PDF识别响应示例**：
+```json
+{
+  "success": true,
+  "text": "完整的PDF文本内容...",
+  "total_pages": 8,
+  "processed_pages": 8,
+  "page_results": [...],
+  "processing_time": 18.5,
+  "summary": {
+    "total_text_boxes": 170,
+    "avg_page_time": 2.31,
+    "overall_confidence": 0.972
+  }
+}
+```
+
 ### 5.3 API文档
 
 启动服务后，访问以下地址查看交互式API文档：
@@ -359,6 +392,45 @@ A: 支持 JPG、JPEG、PNG、BMP、TIFF、TIF、WebP 等常见格式。
 
 ### Q: 可以识别表格吗？
 A: 可以识别表格中的文字，但表格结构解析需要额外处理。
+
+### Q: 支持PDF识别吗？
+A: 支持！可以使用以下方式识别PDF：
+
+```python
+from ocr_engine import OCREngine
+
+engine = OCREngine()
+
+# 识别完整PDF
+result = engine.recognize_pdf('document.pdf')
+print(f"总页数: {result.total_pages}")
+print(f"文本内容: {result.text}")
+
+# 识别指定页面
+result = engine.recognize_pdf(
+    'document.pdf',
+    first_page=1,
+    last_page=5,
+    dpi=200
+)
+```
+
+命令行使用：
+```bash
+# 识别完整PDF
+python -m ocr_engine pdf document.pdf -o result.json
+
+# 识别指定页面
+python -m ocr_engine pdf document.pdf --first-page 1 --last-page 5
+```
+
+API使用：
+```bash
+curl -X POST "http://localhost:8000/recognize/pdf" \
+  -F "file=@document.pdf" \
+  -F "language=ch" \
+  -F "dpi=200"
+```
 
 ## 10. 获取帮助
 

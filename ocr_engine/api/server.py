@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..core.engine import OCREngine
-from ..core.result import OCRResult
+from ..core.result import OCRResult, PDFResult
 
 
 # 数据模型
@@ -43,6 +43,19 @@ class EngineInfoResponse(BaseModel):
     use_gpu: bool
     enable_preprocess: bool
     preprocess_config: dict
+    supports_pdf: bool = True
+
+
+class PDFResponse(BaseModel):
+    """PDF识别响应模型"""
+    success: bool
+    text: str
+    total_pages: int
+    processed_pages: int
+    page_results: List[dict] = []
+    processing_time: float
+    summary: dict = {}
+    error: Optional[str] = None
 
 
 # 全局引擎实例
@@ -216,6 +229,84 @@ def create_app() -> FastAPI:
                 "success": False,
                 "error": str(e)
             }, status_code=500)
+    
+    @app.post("/recognize/pdf", response_model=PDFResponse)
+    async def recognize_pdf(
+        file: UploadFile = File(..., description="上传的PDF文件"),
+        language: str = Form(default="ch", description="识别语言"),
+        dpi: int = Form(default=200, description="PDF转图像分辨率DPI"),
+        first_page: Optional[int] = Form(default=None, description="起始页码(从1开始)"),
+        last_page: Optional[int] = Form(default=None, description="结束页码"),
+        enable_preprocessing: bool = Form(default=True, description="是否启用预处理")
+    ):
+        """
+        识别上传的PDF文件
+        
+        - **file**: PDF文件
+        - **language**: 识别语言 (ch, en, ch_en, etc.)
+        - **dpi**: PDF转图像分辨率，默认200
+        - **first_page**: 起始页码，默认从第1页开始
+        - **last_page**: 结束页码，默认到最后1页
+        - **enable_preprocessing**: 是否启用图像预处理
+        """
+        try:
+            # 验证文件类型
+            if not file.filename.lower().endswith('.pdf'):
+                return PDFResponse(
+                    success=False,
+                    text="",
+                    total_pages=0,
+                    processed_pages=0,
+                    processing_time=0.0,
+                    error="File must be a PDF"
+                )
+            
+            # 保存上传的PDF文件
+            import tempfile
+            import os
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                contents = await file.read()
+                tmp_file.write(contents)
+                tmp_path = tmp_file.name
+            
+            try:
+                # 创建引擎并识别PDF
+                engine = OCREngine(
+                    lang=language,
+                    enable_preprocess=enable_preprocessing
+                )
+                
+                result = engine.recognize_pdf(
+                    tmp_path,
+                    dpi=dpi,
+                    first_page=first_page,
+                    last_page=last_page
+                )
+                
+                return PDFResponse(
+                    success=True,
+                    text=result.text,
+                    total_pages=result.total_pages,
+                    processed_pages=result.processed_pages,
+                    page_results=[r.to_dict() for r in result.page_results],
+                    processing_time=result.processing_time,
+                    summary=result.get_summary()
+                )
+            finally:
+                # 清理临时文件
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            
+        except Exception as e:
+            return PDFResponse(
+                success=False,
+                text="",
+                total_pages=0,
+                processed_pages=0,
+                processing_time=0.0,
+                error=str(e)
+            )
     
     return app
 

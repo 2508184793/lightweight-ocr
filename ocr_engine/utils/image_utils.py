@@ -4,7 +4,7 @@
 
 import os
 from pathlib import Path
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Optional
 import numpy as np
 from PIL import Image
 import cv2
@@ -12,6 +12,8 @@ import cv2
 
 # 支持的图像格式
 SUPPORTED_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
+SUPPORTED_PDF_FORMATS = {'.pdf'}
+ALL_SUPPORTED_FORMATS = SUPPORTED_FORMATS | SUPPORTED_PDF_FORMATS
 
 
 def validate_image_format(image_path: Union[str, Path]) -> bool:
@@ -247,3 +249,117 @@ def draw_text_boxes(
             cv2.polylines(result, [pts], True, color, thickness)
     
     return result
+
+
+def is_pdf_file(file_path: Union[str, Path]) -> bool:
+    """
+    检查文件是否为PDF格式
+    
+    Args:
+        file_path: 文件路径
+        
+    Returns:
+        bool: 是否为PDF文件
+    """
+    path = Path(file_path)
+    return path.suffix.lower() in SUPPORTED_PDF_FORMATS
+
+
+def pdf_to_images(
+    pdf_path: Union[str, Path],
+    dpi: int = 200,
+    first_page: Optional[int] = None,
+    last_page: Optional[int] = None
+) -> List[Tuple[int, np.ndarray]]:
+    """
+    将PDF转换为图像列表
+    
+    Args:
+        pdf_path: PDF文件路径
+        dpi: 转换分辨率，默认200
+        first_page: 起始页码（从1开始），默认None表示从第一页开始
+        last_page: 结束页码，默认None表示到最后一页
+        
+    Returns:
+        List[Tuple[int, np.ndarray]]: [(页码, 图像数组), ...]
+        
+    Raises:
+        ImportError: 未安装pymupdf时抛出
+        FileNotFoundError: 文件不存在时抛出
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise ImportError(
+            "PDF processing requires PyMuPDF. "
+            "Please install with: pip install PyMuPDF"
+        )
+    
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+    
+    # 打开PDF
+    doc = fitz.open(str(pdf_path))
+    images = []
+    
+    # 确定页码范围
+    start_page = (first_page - 1) if first_page else 0
+    end_page = last_page if last_page else len(doc)
+    start_page = max(0, start_page)
+    end_page = min(len(doc), end_page)
+    
+    for page_num in range(start_page, end_page):
+        page = doc[page_num]
+        
+        # 将页面转换为图像
+        mat = fitz.Matrix(dpi/72, dpi/72)  # 72是PDF默认DPI
+        pix = page.get_pixmap(matrix=mat)
+        
+        # 转换为numpy数组
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, pix.n
+        )
+        
+        # 如果是RGBA，转换为RGB
+        if img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        elif img.shape[2] == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        
+        images.append((page_num + 1, img))
+    
+    doc.close()
+    return images
+
+
+def get_pdf_info(pdf_path: Union[str, Path]) -> dict:
+    """
+    获取PDF文件信息
+    
+    Args:
+        pdf_path: PDF文件路径
+        
+    Returns:
+        PDF信息字典
+    """
+    try:
+        import fitz
+    except ImportError:
+        raise ImportError("PDF processing requires PyMuPDF. Please install with: pip install PyMuPDF")
+    
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+    
+    doc = fitz.open(str(pdf_path))
+    
+    info = {
+        "path": str(pdf_path),
+        "page_count": len(doc),
+        "file_size": pdf_path.stat().st_size,
+        "metadata": doc.metadata
+    }
+    
+    doc.close()
+    return info

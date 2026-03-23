@@ -56,6 +56,16 @@ ocr_engine/
   - 处理时间
   - 元数据
 
+#### PDFResult（PDF结果模型）
+- **文件**: `core/result.py`
+- **功能**: 定义PDF识别结果数据结构
+- **包含信息**:
+  - 完整文本（所有页面合并）
+  - 每页识别结果列表
+  - 总页数和处理页数
+  - 摘要统计信息
+  - 处理时间
+
 ## 2. 技术实现细节
 
 ### 2.1 图像预处理算法
@@ -162,6 +172,55 @@ WER = (插入词 + 删除词 + 替换词) / 总词数
 - 吞吐量（张/秒）
 - 平均置信度
 
+### 2.4 PDF识别实现
+
+#### PDF转图像
+
+使用PyMuPDF (fitz) 库将PDF页面转换为图像：
+
+```python
+import fitz
+
+doc = fitz.open(pdf_path)
+page = doc[page_num]
+
+# 设置缩放矩阵，控制DPI
+mat = fitz.Matrix(dpi/72, dpi/72)
+pix = page.get_pixmap(matrix=mat)
+
+# 转换为numpy数组
+img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+    pix.height, pix.width, pix.n
+)
+```
+
+#### 页面标识清理
+
+识别完成后，自动清理文本中的页面标识符：
+
+```python
+import re
+
+# 移除类似 "- 1 -"、"-1-"、"- 8 -" 的页面标识
+cleaned_text = re.sub(r'\n?\s*-\s*\d+\s*-\s*\n?', '\n', cleaned_text)
+cleaned_text = re.sub(r'\n?\s*-\d+-\s*\n?', '\n', cleaned_text)
+
+# 移除行尾的页面标识
+cleaned_text = re.sub(r'\n+\s*-\s*\d+\s*-\s*$', '', cleaned_text)
+
+# 移除多余的空行
+cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+```
+
+#### PDF识别流程
+
+1. 打开PDF文件，获取总页数
+2. 根据first_page/last_page参数确定处理范围
+3. 将每页转换为图像（可配置DPI）
+4. 对每页图像进行OCR识别
+5. 清理页面标识符，合并文本
+6. 返回完整结果和每页详情
+
 ## 3. API设计
 
 ### 3.1 Python API
@@ -228,6 +287,36 @@ file: <图片文件>
 }
 ```
 
+#### PDF识别接口
+
+```http
+POST /recognize/pdf
+Content-Type: multipart/form-data
+
+file: <PDF文件>
+language: ch
+dpi: 200
+first_page: 1
+last_page: 10
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "text": "完整的PDF文本内容...",
+  "total_pages": 8,
+  "processed_pages": 8,
+  "page_results": [...],
+  "processing_time": 18.5,
+  "summary": {
+    "total_text_boxes": 170,
+    "avg_page_time": 2.31,
+    "overall_confidence": 0.972
+  }
+}
+```
+
 ### 3.3 命令行接口
 
 ```bash
@@ -236,6 +325,10 @@ ocr-cli recognize image.jpg -o result.json
 
 # 批量识别
 ocr-cli recognize folder/ -o results.json
+
+# PDF识别
+ocr-cli pdf document.pdf -o result.json
+ocr-cli pdf document.pdf --first-page 1 --last-page 5
 
 # 性能测试
 ocr-cli benchmark --test-data test_images/ -o benchmark.json

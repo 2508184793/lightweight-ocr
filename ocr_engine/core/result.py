@@ -77,3 +77,54 @@ class OCRResult:
             "max": max(confidences),
             "avg": sum(confidences) / len(confidences)
         }
+
+
+@dataclass
+class PDFResult:
+    """PDF识别结果"""
+    text: str  # 所有页面的合并文本
+    page_results: List[OCRResult] = field(default_factory=list)
+    total_pages: int = 0
+    processed_pages: int = 0
+    processing_time: float = 0.0
+    pdf_path: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "text": self.text,
+            "page_results": [result.to_dict() for result in self.page_results],
+            "total_pages": self.total_pages,
+            "processed_pages": self.processed_pages,
+            "processing_time": self.processing_time,
+            "pdf_path": self.pdf_path,
+            "metadata": self.metadata
+        }
+    
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+    
+    def get_page_text(self, page_number: int) -> str:
+        """获取指定页面的文本"""
+        for result in self.page_results:
+            if result.metadata.get("page_number") == page_number:
+                return result.text
+        return ""
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """获取摘要信息"""
+        total_text_boxes = sum(len(r.text_boxes) for r in self.page_results)
+        avg_confidences = []
+        for result in self.page_results:
+            stats = result.get_confidence_stats()
+            if stats["avg"] > 0:
+                avg_confidences.append(stats["avg"])
+        
+        return {
+            "total_pages": self.total_pages,
+            "processed_pages": self.processed_pages,
+            "total_text_boxes": total_text_boxes,
+            "processing_time": self.processing_time,
+            "avg_page_time": self.processing_time / self.processed_pages if self.processed_pages > 0 else 0,
+            "overall_confidence": sum(avg_confidences) / len(avg_confidences) if avg_confidences else 0
+        }
