@@ -67,14 +67,13 @@ def get_pdf_files(conn):
         return []
 
 
-def recognize_pdf(pdf_path):
+def recognize_pdf(engine, pdf_path):
     """
     识别PDF文件
     返回: (text, success) 元组
     """
     try:
         print(f"开始识别PDF: {pdf_path}")
-        engine = OCREngine(lang='ch')
         result = engine.recognize_pdf(pdf_path, dpi=150)
         print(f"识别完成，总页数: {result.total_pages}")
         return result.text, True
@@ -166,6 +165,7 @@ def main():
     主函数 - 有PDF时立即处理，没有时等待20秒
     """
     import time
+    import gc
     
     # 连接数据库
     conn = connect_database()
@@ -173,6 +173,10 @@ def main():
         return
     
     try:
+        print("初始化OCR引擎...")
+        engine = OCREngine(lang='ch')
+        print("OCR引擎初始化完成")
+        
         print("开始循环检测...")
         
         while True:
@@ -198,7 +202,7 @@ def main():
                     continue
                 
                 # 识别PDF
-                text, recognize_success = recognize_pdf(str(pdf_path))
+                text, recognize_success = recognize_pdf(engine, str(pdf_path))
                 
                 if recognize_success and text:
                     # 识别成功且有内容，写入数据库
@@ -225,6 +229,9 @@ def main():
                     update_scan_files_status(conn, path, status=3)
                     # 更新ScanDataBase表的is_syn为0
                     update_scan_database_is_syn(conn, scan_data_base_id)
+            
+            # 处理完一个PDF后，主动进行垃圾回收
+            gc.collect()
             
             # 处理完一个PDF后，立即继续检测下一个（不等待）
             print("继续检测下一个PDF...")
